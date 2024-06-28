@@ -488,6 +488,209 @@ void SDHelper(int mode) {
   }
 #endif
 }
+// Update function based on all included motors and leds
+void updateMotorsAndLEDs(char frame_buffer[], int mode) {
+#if TOTAL_MOTORS > 0 // if len(scn.my_list) > 0
+
+  int servo_index = 0;
+  int stepper_index = 0;
+
+  for (int i = 0; i < TOTAL_MOTORS; i++) {
+    int offset = i * 2;
+
+    // Speed bytes are sent in case we have bus servos...
+    if (mode == 0) {
+      offset = i * 2 + expectedSpeedBytes;
+    }
+
+    unsigned int motor_value =
+        word(frame_buffer[offset], frame_buffer[offset + 1]);
+
+    // Min and Max values
+    if (motor_value > motor_values[i][9] && motor_values[i][8] != 0 &&
+        motor_values[i][9] != 0) {
+      motor_value = motor_values[i][9];
+    }
+
+    else if (motor_value < motor_values[i][8] && motor_values[i][8] != 0 &&
+             motor_values[i][9] != 0) {
+      motor_value = motor_values[i][8];
+    }
+
+// if num_servos > 0 and num_neopixel == 0
+#if TOTAL_SERVOS > 0 && TOTAL_NEOPIXELS == 0
+    // Set servo position
+    if (motor_values[i][0] == 1) {
+      servos[i].writeMicroseconds(motor_value);
+      servo_index++;
+    }
+#elif TOTAL_SERVOS > 0 && TOTAL_NEOPIXELS > 0
+    // elif num_servos > 0 and num_neopixel > 0
+    // Set servo position
+    if (motor_values[i][0] == 1) {
+      servos[i].write(motor_value);
+      servo_index++;
+    }
+#endif
+    // Set PWM value
+    if (motor_values[i][0] == 2) {
+      analogWrite(motor_values[i][1], map(motor_value, 0, 4000, 0, ANALOG_MAX));
+    }
+
+    // Set ON/OFF value
+    if (motor_values[i][0] == 3) {
+      if (motor_value > 0) {
+        digitalWrite(motor_values[i][1], HIGH);
+      } else {
+        digitalWrite(motor_values[i][1], LOW);
+      }
+    }
+
+// if num_steppers > 0:
+#if TOTAL_STEPPERS > 0
+    // Set stepper position
+    if (motor_values[i][0] == 5) {
+      steppers[stepper_index].moveTo(motor_value);
+      stepper_index++;
+    }
+#endif
+
+// if num_lewansoul > 0:
+#if TOTAL_BUS_SERVOS > 0
+    // Set Lewansoul servos
+    if (motor_values[i][0] == 7) {
+      BusServos.SetPos(motor_values[i][1], motor_value,
+                       busServoSpeed); // Might need to remap the speed...
+    }
+#endif
+
+// if num_dynamixel > 0:
+#if TOTAL_DYNAMIXELS > 0
+    // Set Dynamixel
+    if (motor_values[i][0] == 8) {
+      if (busServoSpeed != oldDynamixelSpeed) {
+        for (int i = 0; i < TOTAL_DYNAMIXELS + 1; i++) {
+          dxl.writeControlTableItem(PROFILE_VELOCITY, i, busServoSpeed);
+        }
+        oldDynamixelSpeed = busServoSpeed;
+      }
+      dxl.setGoalPosition(motor_values[i][1], motor_value);
+    }
+#endif
+
+    // Set Bi-directional PWM
+    if (motor_values[i][0] == 4) {
+      if (motor_values[i][3] == 1) {
+        if (motor_value > ANALOG_MAX / 2) {
+          analogWrite(motor_values[i][1], map(motor_value, ANALOG_MAX / 2,
+                                              ANALOG_MAX, 0, ANALOG_MAX));
+          digitalWrite(motor_values[i][2], HIGH);
+        }
+
+        else {
+          analogWrite(motor_values[i][1],
+                      map(motor_value, ANALOG_MAX / 2, 0, 0, ANALOG_MAX));
+          digitalWrite(motor_values[i][2], LOW);
+        }
+      }
+
+      else {
+        if (motor_value > ANALOG_MAX / 2) {
+          analogWrite(motor_values[i][2], map(motor_value, ANALOG_MAX / 2,
+                                              ANALOG_MAX, 0, ANALOG_MAX));
+          digitalWrite(motor_values[i][1], LOW);
+        }
+
+        else {
+          analogWrite(motor_values[i][1],
+                      map(motor_value, ANALOG_MAX / 2, 0, 0, ANALOG_MAX));
+          digitalWrite(motor_values[i][2], LOW);
+        }
+      }
+    }
+  }
+#endif // TOTAL_MOTORS > 0
+
+// if len(scn.my_list2) > 0
+#if TOTAL_LEDS > 0
+
+  long offset = expectedMotorBytes;
+
+  // Speed bytes are sent in case we have bus servos...
+  if (mode == 0) {
+    offset = expectedMotorBytes + expectedSpeedBytes;
+  }
+
+  unsigned int neopixel_index = 0;
+
+  for (int i = 0; i < TOTAL_LEDS; i++) {
+
+    // PWM LED
+    if (led_values[i][0] == 11) {
+      analogWrite(led_values[i][1],
+                  map(int(frame_buffer[offset]), 0, 254, 0, ANALOG_MAX));
+      offset++;
+    }
+    // if num_neopixel + num_dotstars > 0
+#if (TOTAL_NEOPIXEL + TOTAL_DOTSTARS) > 0
+
+    // Neopixel single color
+    else if (led_values[i][0] == 10 && frame_buffer[offset] == 1) {
+      offset++;
+      int red = int(frame_buffer[offset]);
+      int green = int(frame_buffer[offset + 1]);
+      int blue = int(frame_buffer[offset + 2]);
+      int white = 0;
+
+      if (led_values[i][4] == 1) {
+        white = int(frame_buffer[offset + 3]);
+        offset += 4;
+      }
+
+      else {
+        offset += 3;
+      }
+
+      if (led_values[i][4] == 1) {
+        fill_solid(neopixels[neopixel_index], MAX_NEOPIXELS,
+                   CRGB(red, green, blue));
+      } else {
+        fill_solid(neopixels[neopixel_index], MAX_NEOPIXELS,
+                   CRGB(red, green, blue));
+      }
+
+      FastLED.show();
+      neopixel_index++;
+    }
+
+    // Individually addressible
+    else if (led_values[i][0] == 10 && frame_buffer[offset] == 0) {
+      offset++;
+
+      for (unsigned int j = 0; j < led_values[i][3]; j++) {
+        int red = int(frame_buffer[offset]);
+        int green = int(frame_buffer[offset + 1]);
+        int blue = int(frame_buffer[offset + 2]);
+
+        if (led_values[i][4] == 1) {
+          int white = int(frame_buffer[offset + 3]);
+          neopixels[neopixel_index][j].setRGB(red, green, blue);
+          offset += 4;
+        }
+
+        else {
+          neopixels[neopixel_index][j].setRGB(red, green, blue);
+          offset += 3;
+        }
+      }
+
+      FastLED.show();
+      neopixel_index++;
+    }
+#endif
+  }
+#endif
+}
 
 void updateSteppers() {
 #if TOTAL_STEPPERS > 0
