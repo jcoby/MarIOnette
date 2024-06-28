@@ -1814,64 +1814,27 @@ class Sync(bpy.types.Operator):
 
             # START OF FILE
             outputfile.write(
-                "// MarIOnette generated config file for motors and LEDs //\n".encode()
-            )
+                f"""
+// MarIOnette generated config file for motors and LEDs //
+#define BAUD_RATE_SERIAL {scn.scn_prop.BaudRate}
 
-            outputfile.write(
-                ("#define BAUD_RATE_SERIAL " + str(scn.scn_prop.BaudRate)).encode()
-            )
-            outputfile.write(
-                (
-                    "\n\n" + "#define SD_ENABLE " + str(int(scn.scn_prop.SDCardEnabled))
-                ).encode()
-            )
-            outputfile.write(
-                (
-                    "\n"
-                    + "#define USE_SD_INTERNAL "
-                    + str(int(scn.scn_prop.SDCardInternal))
-                ).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define SD_CS_PIN " + str(scn.scn_prop.CSPin)).encode()
-            )
-            outputfile.write(
-                ("\n\n" + "#define TOTAL_MOTORS " + str(len(scn.my_list))).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define TOTAL_SERVOS " + str(num_servos)).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define TOTAL_PWM_MOTORS " + str(num_pwm)).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define TOTAL_STEPPERS " + str(num_steppers)).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define TOTAL_BUS_SERVOS " + str(num_lewansoul)).encode()
-            )
-            if num_lewansoul > 0:
-                outputfile.write(("\n" + "#define BUS_SERVO_BAUD 115200").encode())
-            outputfile.write(
-                ("\n" + "#define TOTAL_DYNAMIXELS " + str(num_dynamixel)).encode()
-            )
-            outputfile.write(
-                ("\n\n" + "#define TOTAL_LEDS " + str(len(scn.my_list2))).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define TOTAL_PWM_LEDS " + str(num_pwm_led)).encode()
-            )
-            outputfile.write(
-                ("\n" + "#define TOTAL_NEOPIXELS " + str(num_neopixel)).encode()
-            )
+#define SD_ENABLE {int(scn.scn_prop.SDCardEnabled)}
 
-            outputfile.write(
-                (
-                    "\n\n"
-                    + "unsigned long motor_values["
-                    + str(len(scn.my_list))
-                    + "][10] = {"
-                ).encode()
+#define USE_SD_INTERNAL {int(scn.scn_prop.SDCardInternal)}
+#define SD_CS_PIN {scn.scn_prop.CSPin}
+#define TOTAL_MOTORS {len(scn.my_list)}
+#define TOTAL_SERVOS {num_servos}
+#define TOTAL_PWM_MOTORS {num_pwm}
+#define TOTAL_STEPPERS {num_steppers}
+#define TOTAL_BUS_SERVOS {num_lewansoul}
+#define BUS_SERVO_BAUD 115200
+#define TOTAL_DYNAMIXELS {num_dynamixel}
+#define TOTAL_LEDS {len(scn.my_list2)}
+#define TOTAL_PWM_LEDS {num_pwm_led}
+#define TOTAL_NEOPIXELS {num_neopixel}
+
+unsigned long motor_values[TOTAL_MOTORS][10] = {{
+""".encode()
             )
 
             counter = 0
@@ -2129,27 +2092,30 @@ class Sync(bpy.types.Operator):
                 outputfile.write(("unsigned long led_values[0][0];").encode())
 
             # Libraries and objects
-            outputfile.write(('\n#include "Arduino.h"\n').encode())
             outputfile.write(
-                (
-                    "\n// For AVR - based boards without a dedicated Serial buffer, we need to add a small delay between Serial reads"
-                ).encode()
-            )
-            outputfile.write(
-                (
-                    "\n// Teensy appears to use a default 12-bit resolution for Analog writes..."
-                ).encode()
-            )
-            outputfile.write(
-                (
-                    "\n#if defined(__AVR__)\n #define IS_AVR 1\n #define SERIAL_DELAY 1\n #define ANALOG_MAX 255\n#else\n #define IS_AVR 0\n #define SERIAL_DELAY 5\n #define ANALOG_MAX 4095\n#endif\n"
-                ).encode()
-            )
+                """
+#include "Arduino.h"
 
-            outputfile.write(
-                (
-                    "\n// MarIOnette serial\nunsigned int counter = 0;\nunsigned int howManyBytes = 0;\n\n// Expected packet\nconst int expectedMotorBytes = TOTAL_MOTORS * 2;\nconst int expectedSpeedBytes = 2;\n"
-                ).encode()
+// For AVR - based boards without a dedicated Serial buffer, we need to add a small delay between Serial reads
+// Teensy appears to use a default 12-bit resolution for Analog writes...
+#if defined(__AVR__)
+#define IS_AVR 1
+#define SERIAL_DELAY 1
+#define ANALOG_MAX 255
+#else
+#define IS_AVR 0
+#define SERIAL_DELAY 5
+#define ANALOG_MAX 4095
+#endif
+
+// MarIOnette serial
+unsigned int counter = 0;
+unsigned int howManyBytes = 0;
+
+// Expected packet
+const int expectedMotorBytes = TOTAL_MOTORS * 2;
+const int expectedSpeedBytes = 2;
+""".encode()
             )
 
             # Servos: use PWMServo library if we have neopixels, otherwise use regular servo library
@@ -2654,121 +2620,6 @@ class Sync(bpy.types.Operator):
                 outputfile.write(("\n }").encode())
 
             outputfile.write(("\n}").encode())
-
-            # SD file open and reading
-            outputfile.write(("\n\nvoid playAnimationFile(){").encode())
-            if scn.scn_prop.SDCardEnabled:
-                # Update animation from file
-                outputfile.write(("\n if(playingAnimation){").encode())
-                outputfile.write(
-                    ("\n  if(micros() - animationTimer > frameInterval){").encode()
-                )
-                outputfile.write(("\n    if(currentFrame == totalFrames){").encode())
-                outputfile.write(("\n     playingAnimation = 0;").encode())
-                outputfile.write(("\n     animFile.close();").encode())
-                outputfile.write(('\n     Serial.println("Animation done!");').encode())
-                outputfile.write(("\n     return;\n   }\n").encode())
-                outputfile.write(("\n    char frame_buffer[frameByteLength];").encode())
-                outputfile.write(
-                    (
-                        "\n    for(unsigned int i = 0; i < frameByteLength; i++){"
-                    ).encode()
-                )
-                outputfile.write(
-                    ("\n     frame_buffer[i] = animFile.read();\n    }\n").encode()
-                )
-                outputfile.write(
-                    ("\n    updateMotorsAndLEDs(frame_buffer, 1);").encode()
-                )
-                outputfile.write(("\n    currentFrame++;").encode())
-                outputfile.write(
-                    ("\n    animationTimer = micros();\n  }\n }\n}").encode()
-                )
-
-                # Open SD card file
-                outputfile.write(("\n\nvoid readAnimationFile(){").encode())
-                outputfile.write(
-                    (
-                        "\n // If file is found, parse the header and begin playback"
-                    ).encode()
-                )
-                outputfile.write(("\n if(SD.exists(filename)){").encode())
-                outputfile.write(('\n  Serial.print("File \'");').encode())
-                outputfile.write(("\n  Serial.print(filename);").encode())
-                outputfile.write(('\n  Serial.print("\' found! Size: ");').encode())
-                outputfile.write(("\n  animFile = SD.open(filename);").encode())
-                outputfile.write(("\n  Serial.println(animFile.size());\n").encode())
-                outputfile.write(("\n  animFile.read(); // LED mode").encode())
-                outputfile.write(("\n  totalFrames = animFile.parseInt();").encode())
-                outputfile.write(("\n  FPS = animFile.parseInt();").encode())
-                outputfile.write(
-                    ("\n  frameByteLength = animFile.parseInt();\n").encode()
-                )
-                outputfile.write(("\n  animFile.read(); // newline").encode())
-                outputfile.write(("\n  animFile.read(); // carriage return\n").encode())
-                outputfile.write(
-                    ("\n  frameInterval = 1000*1000/FPS; // In microseconds\n").encode()
-                )
-                outputfile.write(('\n  Serial.print("Total frames: ");').encode())
-                outputfile.write(("\n  Serial.print(totalFrames);").encode())
-                outputfile.write(('\n  Serial.print(" | FPS: ");').encode())
-                outputfile.write(("\n  Serial.print(FPS);").encode())
-                outputfile.write(('\n  Serial.print(" | Bytes per frame: ");').encode())
-                outputfile.write(("\n  Serial.println(frameByteLength);\n").encode())
-                outputfile.write(("\n  playingAnimation = 1;").encode())
-                outputfile.write(("\n  currentFrame = 0;").encode())
-                outputfile.write(("\n  animationTimer = micros();\n }\n").encode())
-                outputfile.write(("\n // File not found").encode())
-                outputfile.write(("\n else{").encode())
-                outputfile.write(
-                    ('\n  Serial.println("File not found on SD card!");').encode()
-                )
-                outputfile.write(("\n  playingAnimation = 0;\n }\n}").encode())
-
-                # Helper Function for SD playback
-                outputfile.write(("\n\nvoid SDHelper(int mode){").encode())
-                outputfile.write(("\n if(mode == 0){").encode())
-                outputfile.write(("\n  playingAnimation = 0;").encode())
-                outputfile.write(("\n  animFile.close();\n }\n").encode())
-                outputfile.write(("\n else{").encode())
-                outputfile.write(("\n  int i = 0;\n").encode())
-                outputfile.write(("\n  // Reset filename").encode())
-                outputfile.write(("\n  for(int j = 0; j < 20; j++){").encode())
-                outputfile.write(("\n   filename[j] = '\\0';\n  }\n").encode())
-                outputfile.write(("\n  while(Serial.available()){").encode())
-                outputfile.write(("\n   char c = Serial.read();\n").encode())
-                outputfile.write(("\n   if(c != '\\n'){").encode())
-                outputfile.write(("\n    filename[i] += c;").encode())
-                outputfile.write(("\n    i++;\n   }\n").encode())
-                outputfile.write(("\n   else{").encode())
-                outputfile.write(("\n    filename[i] = '\\0';").encode())
-                outputfile.write(("\n    Serial.flush();\n   }\n").encode())
-                outputfile.write(("\n   if(IS_AVR){").encode())
-                outputfile.write(("\n    delay(SERIAL_DELAY);\n   }\n").encode())
-                outputfile.write(("\n   else{").encode())
-                outputfile.write(
-                    ("\n    delayMicroseconds(SERIAL_DELAY);\n   }\n  }\n").encode()
-                )
-                outputfile.write(('\n  Serial.print("Filename: ");').encode())
-                outputfile.write(("\n  Serial.println(filename);\n").encode())
-                outputfile.write(("\n  readAnimationFile();\n }\n}").encode())
-
-            else:
-                outputfile.write(("}").encode())
-                outputfile.write(("\n\nvoid SDHelper(int mode){}").encode())
-                outputfile.write(("\n\nvoid readAnimationFile(){}").encode())
-
-            outputfile.write(("\n\nvoid updateSteppers(){").encode())
-
-            if num_steppers > 0:
-                outputfile.write(
-                    (
-                        "\n for(int i = 0; i < TOTAL_STEPPERS; i++){\n  steppers[i].run();\n }\n}"
-                    ).encode()
-                )
-
-            else:
-                outputfile.write(("}").encode())
 
             outputfile.close()
 
