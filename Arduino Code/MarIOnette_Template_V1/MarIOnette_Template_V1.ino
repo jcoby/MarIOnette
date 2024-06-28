@@ -13,291 +13,494 @@ Teensy 4.1
 
 #include "config.h"
 
-void readSerialBytes() {
-  int debugOut = 0;
-  char inByte;
+#include "Arduino.h"
 
-  if (Serial.available() > 0) {
-    char mode = Serial.read();
+// For AVR - based boards without a dedicated Serial buffer, we need to add a
+// small delay between Serial reads Teensy appears to use a default 12-bit
+// resolution for Analog writes...
+#if defined(__AVR__)
+#define IS_AVR 1
+#define SERIAL_DELAY 1
+#define ANALOG_MAX 255
+#else
+#define IS_AVR 0
+#define SERIAL_DELAY 5
+#define ANALOG_MAX 4095
+#endif
 
-    // Blender sending data...
-    if (mode == 'A' || mode == 'B') {
-      counter = 0;
+// MarIOnette serial
+unsigned int counter = 0;
+unsigned int howManyBytes = 0;
 
-      if (IS_AVR) {
-        delay(SERIAL_DELAY);
+// Expected packet
+const int expectedMotorBytes = TOTAL_MOTORS * 2;
+const int expectedSpeedBytes = 2;
+
+// Servos: use PWMServo library if we have neopixels, otherwise use regular
+#if TOTAL_SERVOS > 0 && TOTAL_NEOPIXELS == 0
+#include <Servo.h>
+Servo servos[TOTAL_SERVOS];
+#elif TOTAL_SERVOS > 0 && TOTAL_NEOPIXELS > 0
+#include "PWMServo.h"
+PWMServo servos[TOTAL_SERVOS];
+#endif
+
+// Stepper library
+#if TOTAL_STEPPERS > 0
+#include <AccelStepper.h>
+AccelStepper steppers[TOTAL_STEPPERS];
+#endif
+
+// LX16A
+#if TOTAL_BUS_SERVOS > 0
+#include "LSServo.h"
+LSServo BusServos;
+#endif
+
+unsigned int busServoSpeed;
+unsigned int readingPositions = 0;
+
+// Dynamixel
+#if TOTAL_DYNAMIXELS > 0:
+#include "Dynamixel2Arduino.h"
+Dynamixel2Arduino dxl(DYNAMIXEL_SERIAL_PORT, DYNAMIXEL_DIR_PIN);
+// This namespace is required to use Control table item names
+using namespace ControlTableItem;
+int oldDynamixelSpeed = DYNAMIXEL_SPEED;
+#endif
+
+// SD card
+#if SD_ENABLE
+#include <SD.h>
+#include <SPI.h>
+#if USE_SD_INTERNAL
+const int SDChipSelect = BUILTIN_SDCARD;
+
+#else
+const int SDChipSelect = SD_CS_PIN;
+#endif
+File animFile;
+// SD Animation
+unsigned long currentFrame;
+unsigned int FPS;
+unsigned long totalFrames;
+unsigned int frameByteLength;
+unsigned long frameInterval;
+unsigned long animationTimer;
+char filename[20];
+#endif
+
+unsigned int playingAnimation;
+
+// Setup function based on all included motors and leds
+void setupAll() {
+#if SD_ENABLE
+  while (!SD.begin(SDChipSelect)) {
+    Serial.println(
+        "No SD card found or incorrect wiring! Retrying in 3 seconds...");
+    delay(3000);
+  }
+#endif
+#if TOTAL_MOTORS > 0
+  for (int i = 0; i < TOTAL_MOTORS; i++) {
+#if TOTAL_SERVOS > 0
+    // Servos
+    if (motor_values[i][0] == 1) {
+      servos[i].attach(motor_values[i][1]);
+    }
+#endif
+    // PWM Pin
+    if (motor_values[i][0] == 2) {
+      pinMode(motor_values[i][1], OUTPUT);
+    }
+    // ON/OFF Pin
+    if (motor_values[i][0] == 3) {
+      pinMode(motor_values[i][1], OUTPUT);
+    }
+    // PWM Bi-Directional
+    if (motor_values[i][0] == 4) {
+      pinMode(motor_values[i][1], OUTPUT);
+      pinMode(motor_values[i][2], OUTPUT);
+    }
+#if TOTAL_BUS_SERVOS > 0
+    // Bus Servos
+    if (motor_values[i][0] == 7) {
+      BUS_SERVO_SERIAL_PORT.begin(BUS_SERVO_BAUD);
+      BusServos.pSerial = &BUS_SERVO_SERIAL_PORT;
+      Serial.println("Connected to bus servo on Serial1");
+    }
+#endif
+#if TOTAL_DYNAMIXELS > 0
+    // Dynamixels
+    dxl.begin(DYNAMIXEL_BAUD);
+    dxl.setPortProtocolVersion(DYNAMIXEL_PROTOCOL_VER);
+
+    for (int i = 0; i < TOTAL_DYNAMIXELS + 1; i++) {
+      dxl.torqueOff(i);
+      dxl.setOperatingMode(i, OP_POSITION);
+      dxl.torqueOn(i);
+      dxl.writeControlTableItem(PROFILE_VELOCITY, i, DYNAMIXEL_SPEED);
+    }
+#endif
+
+#if TOTAL_STEPPERS > 0
+    // Steppers
+    Serial.println("Starting stepper initialization...");
+    for (int i = 0; i < TOTAL_STEPPERS; i++) {
+      for (int j = 0; j < TOTAL_MOTORS; j++) {
+
+        if (motor_values[j][0] == 5) {
+          steppers[i] = AccelStepper(steppers[i].DRIVER, motor_values[j][1],
+                                     motor_values[j][2]);
+          steppers[i].setMaxSpeed(motor_values[j][4]); // 100mm/s @ 80 steps/mm
+          steppers[i].setAcceleration(motor_values[j][5]); // 2000mm/s^2
+          steppers[i].setPinsInverted(false, false, true);
+          steppers[i].enableOutputs();
+          i++;
+        }
       }
+    }
+#endif // TOTAL_STEPPERS > 0
 
-      else {
-        delayMicroseconds(SERIAL_DELAY);
+#if TOTAL_LEDS > 0
+    // PWM LEDs
+    for (int i = 0; i < TOTAL_LEDS; i++) {
+      if (led_values[i][0] == 11) {
+        pinMode(led_values[i][2], OUTPUT);
+        analogWrite(led_values[i][2], 0);
       }
+    }
+#endif
 
-      // Read in first bytes to get message length
-      char one = Serial.read();
+    // Neopixels and others
+#if (TOTAL_NEOPIXEL + TOTAL_DOTSTARS) > 0:
+#error "Neopixel and Dotstar init support not migrated from the python code!"
+    // TODO FIXME
+    // numz = 0
+    // for blah in range(0, len(scn.my_list2)):
+    //     if scn.my_list2[blah].LEDType == "Neopixel":
 
-      if (IS_AVR) {
-        delay(SERIAL_DELAY);
-      }
+    //         outputfile.write(
+    //             (
+    //                 "\n\n FastLED.addLeds<NEOPIXEL, "
+    //                 + str(scn.my_list2[blah].DataPin)
+    //                 + ">(neopixels["
+    //                 + str(numz)
+    //                 + "], "
+    //                 + str(max_neopixels)
+    //                 + ");\n"
+    //             ).encode()
+    //         )
+    //         numz += 1
+    //     elif scn.my_list2[blah].LEDType == "Dotstar":
+    //         outputfile.write(
+    //             (
+    //                 "\n\n FastLED.addLeds<DOTSTAR, "
+    //                 + str(scn.my_list2[blah].DataPin)
+    //                 + ", "
+    //                 + str(scn.my_list2[blah].ClockPin)
+    //                 + ", "
+    //                 + str(scn.my_list2[blah].NeopixelOrder)
+    //                 + ">(neopixels["
+    //                 + str(numz)
+    //                 + "], "
+    //                 + str(max_neopixels)
+    //                 + ");\n"
+    //             ).encode()
+    //         )
+    //         numz += 1
 
-      else {
-        delayMicroseconds(SERIAL_DELAY);
-      }
+// outputfile.write(
+//     ("\n FastLED.clear();\n FastLED.show();\n").encode()
+// )
+#endif
 
-      char two = Serial.read();
+#endif // TOTAL_MOTORS > 0
+  }
 
-      if (mode == 'A') {
-        howManyBytes = word(one, two) + expectedSpeedBytes;
-      }
+  void readSerialBytes() {
+    int debugOut = 0;
+    char inByte;
 
-      else {
-        howManyBytes = word(one, two);
-      }
+    if (Serial.available() > 0) {
+      char mode = Serial.read();
 
-      if (debugOut) {
-        Serial.print("Expecting bytes: ");
-        Serial.println(howManyBytes);
-      }
+      // Blender sending data...
+      if (mode == 'A' || mode == 'B') {
+        counter = 0;
 
-      char tempBuffer[howManyBytes];
-
-      while (Serial.available()) {
         if (IS_AVR) {
           delay(SERIAL_DELAY);
         }
 
-        inByte = Serial.read();
-
-        // Keep reading in case last byte is the stop char
-        if (counter < howManyBytes) {
-          tempBuffer[counter] = inByte;
-
-          counter++;
-          if (debugOut) {
-            // Serial.println(counter);
-          }
+        else {
+          delayMicroseconds(SERIAL_DELAY);
         }
 
-        // Received too many bytes but no stop character...
-        else if (counter >= howManyBytes && inByte != '.') {
-          Serial.print("Too many bytes, expected ");
-          while (Serial.available()) {
-            Serial.read();
+        // Read in first bytes to get message length
+        char one = Serial.read();
+
+        if (IS_AVR) {
+          delay(SERIAL_DELAY);
+        }
+
+        else {
+          delayMicroseconds(SERIAL_DELAY);
+        }
+
+        char two = Serial.read();
+
+        if (mode == 'A') {
+          howManyBytes = word(one, two) + expectedSpeedBytes;
+        }
+
+        else {
+          howManyBytes = word(one, two);
+        }
+
+        if (debugOut) {
+          Serial.print("Expecting bytes: ");
+          Serial.println(howManyBytes);
+        }
+
+        char tempBuffer[howManyBytes];
+
+        while (Serial.available()) {
+          if (IS_AVR) {
+            delay(SERIAL_DELAY);
+          }
+
+          inByte = Serial.read();
+
+          // Keep reading in case last byte is the stop char
+          if (counter < howManyBytes) {
+            tempBuffer[counter] = inByte;
+
             counter++;
+            if (debugOut) {
+              // Serial.println(counter);
+            }
           }
 
-          if (debugOut) {
+          // Received too many bytes but no stop character...
+          else if (counter >= howManyBytes && inByte != '.') {
             Serial.print("Too many bytes, expected ");
-            Serial.print(howManyBytes);
-            Serial.print(" and got ");
-            Serial.println(counter);
+            while (Serial.available()) {
+              Serial.read();
+              counter++;
+            }
+
+            if (debugOut) {
+              Serial.print("Too many bytes, expected ");
+              Serial.print(howManyBytes);
+              Serial.print(" and got ");
+              Serial.println(counter);
+            }
+
+            counter = 0;
+            break;
           }
 
-          counter = 0;
-          break;
+          // Right amount of bytes received, set motors and LEDs
+          else if (counter == howManyBytes && (inByte == '.' || inByte == 46)) {
+            if (debugOut) {
+              Serial.println("Success!");
+            }
+
+            if (mode == 'A') {
+              updateMotorsAndLEDs(tempBuffer, 0);
+              busServoSpeed = word(tempBuffer[0], tempBuffer[1]);
+            }
+
+            else {
+              updateMotorsAndLEDs(tempBuffer, 1);
+              busServoSpeed = 0;
+            }
+          }
+        }
+      }
+
+      // Play back file from SD card
+      else if (mode == 'P' && !playingAnimation && SD_ENABLE) {
+        SDHelper(1);
+      }
+
+      // Stop file playback
+      else if (mode == 'S' && playingAnimation && SD_ENABLE) {
+        SDHelper(0);
+        Serial.println("Animation stopped by serial");
+      }
+
+      // IN PROGRESS!!!
+      // Read values from dynamixels or bus servos
+      else if (mode == 'R' && !readingPositions && SD_ENABLE) {
+        if (TOTAL_BUS_SERVOS > 0 || TOTAL_DYNAMIXELS > 0) {
+          // Read how long the animation is and at what FPS it runs
+          // readingPositions = 1;
+
+          // Serial.parseInt();
+          // totalFrames = Serial.parseInt();
+          // FPS = Serial.parseInt();
+
+          // frameInterval = 1000*1000/FPS; // In microseconds
+
+          // animationTimer = 0;
         }
 
-        // Right amount of bytes received, set motors and LEDs
-        else if (counter == howManyBytes && (inByte == '.' || inByte == 46)) {
-          if (debugOut) {
-            Serial.println("Success!");
-          }
-
-          if (mode == 'A') {
-            updateMotorsAndLEDs(tempBuffer, 0);
-            busServoSpeed = word(tempBuffer[0], tempBuffer[1]);
-          }
-
-          else {
-            updateMotorsAndLEDs(tempBuffer, 1);
-            busServoSpeed = 0;
-          }
+        else {
+          Serial.println("No bus servos or dynamixels configured!");
         }
       }
-    }
 
-    // Play back file from SD card
-    else if (mode == 'P' && !playingAnimation && SD_ENABLE) {
-      SDHelper(1);
-    }
-
-    // Stop file playback
-    else if (mode == 'S' && playingAnimation && SD_ENABLE) {
-      SDHelper(0);
-      Serial.println("Animation stopped by serial");
-    }
-
-    // IN PROGRESS!!!
-    // Read values from dynamixels or bus servos
-    else if (mode == 'R' && !readingPositions && SD_ENABLE) {
-      if (TOTAL_BUS_SERVOS > 0 || TOTAL_DYNAMIXELS > 0) {
-        // Read how long the animation is and at what FPS it runs
-        // readingPositions = 1;
-
-        // Serial.parseInt();
-        // totalFrames = Serial.parseInt();
-        // FPS = Serial.parseInt();
-
-        // frameInterval = 1000*1000/FPS; // In microseconds
-
-        // animationTimer = 0;
-      }
-
-      else {
-        Serial.println("No bus servos or dynamixels configured!");
+      // Cancel position reads
+      else if (mode == 'Z' && readingPositions) {
+        readingPositions = 0;
       }
     }
+  }
 
-    // Cancel position reads
-    else if (mode == 'Z' && readingPositions) {
-      readingPositions = 0;
+  void setup() {
+    // Start Serial monitor
+    Serial.begin(BAUD_RATE_SERIAL);
+    Serial.println("Starting MarIOnette initialization...");
+
+    // Perform setup, which gets dynamically generated by MarIOnette
+    setupAll();
+
+    Serial.println("Setup finished!");
+
+    /*
+    // Uncomment this block to test SD card animation playback
+    // Change the testFile name to whatever you exported the animation as, and
+    then trigger it to run if(DEBUG_SD_PLAYBACK_TEST){ String testFile =
+    "test8"; int length = testFile.length() + 1; testFile.toCharArray(filename,
+    length); playingAnimation = 1; readAnimationFile();
     }
+    */
   }
-}
 
-void setup() {
-  // Start Serial monitor
-  Serial.begin(BAUD_RATE_SERIAL);
-  Serial.println("Starting MarIOnette initialization...");
-
-  // Perform setup, which gets dynamically generated by MarIOnette
-  setupAll();
-
-  Serial.println("Setup finished!");
-
-  /*
-  // Uncomment this block to test SD card animation playback
-  // Change the testFile name to whatever you exported the animation as, and
-  then trigger it to run if(DEBUG_SD_PLAYBACK_TEST){ String testFile = "test8";
-    int length = testFile.length() + 1;
-    testFile.toCharArray(filename, length);
-    playingAnimation = 1;
-    readAnimationFile();
-  }
-  */
-}
-
-void playAnimationFile() {
+  void playAnimationFile() {
 #if SD_ENABLE
-  if (playingAnimation) {
-    if (micros() - animationTimer > frameInterval) {
-      if (currentFrame == totalFrames) {
-        playingAnimation = 0;
-        animFile.close();
-        Serial.println("Animation done!");
-        return;
-      }
+    if (playingAnimation) {
+      if (micros() - animationTimer > frameInterval) {
+        if (currentFrame == totalFrames) {
+          playingAnimation = 0;
+          animFile.close();
+          Serial.println("Animation done!");
+          return;
+        }
 
-      char frame_buffer[frameByteLength];
-      for (unsigned int i = 0; i < frameByteLength; i++) {
-        frame_buffer[i] = animFile.read();
-      }
+        char frame_buffer[frameByteLength];
+        for (unsigned int i = 0; i < frameByteLength; i++) {
+          frame_buffer[i] = animFile.read();
+        }
 
-      updateMotorsAndLEDs(frame_buffer, 1);
-      currentFrame++;
+        updateMotorsAndLEDs(frame_buffer, 1);
+        currentFrame++;
+        animationTimer = micros();
+      }
+    }
+#endif
+  }
+
+  void readAnimationFile() {
+#if SD_ENABLE
+    // If file is found, parse the header and begin playback
+    if (SD.exists(filename)) {
+      Serial.print("File '");
+      Serial.print(filename);
+      Serial.print("' found! Size: ");
+      animFile = SD.open(filename);
+      Serial.println(animFile.size());
+
+      animFile.read(); // LED mode
+      totalFrames = animFile.parseInt();
+      FPS = animFile.parseInt();
+      frameByteLength = animFile.parseInt();
+
+      animFile.read(); // newline
+      animFile.read(); // carriage return
+
+      frameInterval = 1000 * 1000 / FPS; // In microseconds
+
+      Serial.print("Total frames: ");
+      Serial.print(totalFrames);
+      Serial.print(" | FPS: ");
+      Serial.print(FPS);
+      Serial.print(" | Bytes per frame: ");
+      Serial.println(frameByteLength);
+
+      playingAnimation = 1;
+      currentFrame = 0;
       animationTimer = micros();
     }
-  }
+
+    // File not found
+    else {
+      Serial.println("File not found on SD card!");
+      playingAnimation = 0;
+    }
 #endif
-}
+  }
 
-void readAnimationFile() {
+  void SDHelper(int mode) {
 #if SD_ENABLE
-  // If file is found, parse the header and begin playback
-  if (SD.exists(filename)) {
-    Serial.print("File '");
-    Serial.print(filename);
-    Serial.print("' found! Size: ");
-    animFile = SD.open(filename);
-    Serial.println(animFile.size());
-
-    animFile.read(); // LED mode
-    totalFrames = animFile.parseInt();
-    FPS = animFile.parseInt();
-    frameByteLength = animFile.parseInt();
-
-    animFile.read(); // newline
-    animFile.read(); // carriage return
-
-    frameInterval = 1000 * 1000 / FPS; // In microseconds
-
-    Serial.print("Total frames: ");
-    Serial.print(totalFrames);
-    Serial.print(" | FPS: ");
-    Serial.print(FPS);
-    Serial.print(" | Bytes per frame: ");
-    Serial.println(frameByteLength);
-
-    playingAnimation = 1;
-    currentFrame = 0;
-    animationTimer = micros();
-  }
-
-  // File not found
-  else {
-    Serial.println("File not found on SD card!");
-    playingAnimation = 0;
-  }
-#endif
-}
-
-void SDHelper(int mode) {
-#if SD_ENABLE
-  if (mode == 0) {
-    playingAnimation = 0;
-    animFile.close();
-  }
-
-  else {
-    int i = 0;
-
-    // Reset filename
-    for (int j = 0; j < 20; j++) {
-      filename[j] = '\0';
+    if (mode == 0) {
+      playingAnimation = 0;
+      animFile.close();
     }
 
-    while (Serial.available()) {
-      char c = Serial.read();
+    else {
+      int i = 0;
 
-      if (c != '\n') {
-        filename[i] += c;
-        i++;
+      // Reset filename
+      for (int j = 0; j < 20; j++) {
+        filename[j] = '\0';
       }
 
-      else {
-        filename[i] = '\0';
-        Serial.flush();
+      while (Serial.available()) {
+        char c = Serial.read();
+
+        if (c != '\n') {
+          filename[i] += c;
+          i++;
+        }
+
+        else {
+          filename[i] = '\0';
+          Serial.flush();
+        }
+
+        if (IS_AVR) {
+          delay(SERIAL_DELAY);
+        }
+
+        else {
+          delayMicroseconds(SERIAL_DELAY);
+        }
       }
 
-      if (IS_AVR) {
-        delay(SERIAL_DELAY);
-      }
+      Serial.print("Filename: ");
+      Serial.println(filename);
 
-      else {
-        delayMicroseconds(SERIAL_DELAY);
-      }
+      readAnimationFile();
     }
-
-    Serial.print("Filename: ");
-    Serial.println(filename);
-
-    readAnimationFile();
-  }
 #endif
-}
+  }
 
-void updateSteppers() {
+  void updateSteppers() {
 #if TOTAL_STEPPERS > 0
-  for (int i = 0; i < TOTAL_STEPPERS; i++) {
-    steppers[i].run();
-  }
+    for (int i = 0; i < TOTAL_STEPPERS; i++) {
+      steppers[i].run();
+    }
 #endif
-}
-
-void loop() {
-  // Begin reading serial port for incoming commands
-  readSerialBytes();
-  if (playingAnimation) {
-    playAnimationFile();
   }
-  updateSteppers();
-}
+
+  void loop() {
+    // Begin reading serial port for incoming commands
+    readSerialBytes();
+    if (playingAnimation) {
+      playAnimationFile();
+    }
+    updateSteppers();
+  }
