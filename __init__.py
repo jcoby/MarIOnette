@@ -44,15 +44,6 @@ except:
     print("Done installing pyserial, enjoy MarIOnette!")
 
 
-try:
-    import wget
-except:
-    import subprocess, pip
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "wget"])
-
-    import wget
-
 from numpy import interp
 from math import degrees, acos, radians
 from mathutils import Matrix, Vector, Euler
@@ -97,9 +88,6 @@ currentAxis = ""
 currentListValue = 0
 configSize = 0
 headerLen = 0
-
-
-# filename = wget.download(url, out=output_directory)
 
 
 def num_to_range(num, inMin, inMax, outMin, outMax):
