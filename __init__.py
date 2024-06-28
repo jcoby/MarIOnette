@@ -43,7 +43,7 @@ except:
 
     print("Done installing pyserial, enjoy MarIOnette!")
 
-
+import serial.tools.list_ports
 from numpy import interp
 from math import degrees, acos, radians
 from mathutils import Matrix, Vector, Euler
@@ -144,48 +144,16 @@ def get_bones_rotation(armature, bone, axis):
         return degrees(mat.to_euler().z)
 
 
-# System agnostic listing of the serial ports
-def serial_ports():
-    """Lists serial port names
-
-    :raises EnvironmentError:
-        On unsupported or unknown platforms
-    :returns:
-        A list of the serial ports available on the system
-    """
-    if sys.platform.startswith("win"):
-        ports = ["COM%s" % (i + 1) for i in range(256)]
-    elif sys.platform.startswith("linux") or sys.platform.startswith("cygwin"):
-        # this excludes your current terminal "/dev/tty"
-        ports = glob.glob("/dev/tty[A-Za-z]*")
-    elif sys.platform.startswith("darwin"):
-        ports = glob.glob("/dev/tty.*")
-    else:
-        raise EnvironmentError("Unsupported platform")
-
-    result = []
-    for port in ports:
-        try:
-            s = serial.Serial(port)
-            s.close()
-            result.append(port)
-        except (OSError, serial.SerialException):
-            pass
-    return result
-
-
 # Callback function used for filling the list of serial ports
 def update_serial_ports():
-    ports = serial_ports()
-    ports_len = len(ports)
     global serialports
 
     # Give option to have no com port selected
     serialports = [("None", "None", "")]
 
     # Add any serial ports found; this does not give info about each port, so user must know which port the arduino lives in
-    for counter in range(0, ports_len):
-        serialports.append((str(ports[counter]), str(ports[counter]), ""))
+    for port in serial.tools.list_ports.comports():
+        serialports.append((port.device, port.device, ""))
 
     return True
 
