@@ -20,7 +20,7 @@ try:
 
     print("Starting pyserial")
 except:
-    import subprocess, pip
+    import subprocess
 
     print("No pyserial module found, installing with pip...")
 
