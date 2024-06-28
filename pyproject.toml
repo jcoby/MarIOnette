@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "marionette"
+version = "1.0.4"
+description = "Interfaces with an Arduino and sends bone angles which translate to servo motions and LED values"
+authors = ["Niko Vladimirov"]
+license = "GPL3"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "=3.11.*"
+bpy = "^4.1.0"
+requests = "^2.32.3"
+mathutils = "^3.3.0"
+pyserial = "^3.5"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.4.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
