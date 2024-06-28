@@ -1762,7 +1762,10 @@ class Sync(bpy.types.Operator):
 
             # Copy ino file to filenamez
             shutil.copy(
-                "./Arduino Code/MarIOnette_Template_V1/MarIOnette_Template_V1.ino",
+                os.path.join(
+                    os.path.dirname(__file__),
+                    "Arduino Code/MarIOnette_Template_V1/MarIOnette_Template_V1.ino",
+                ),
                 filenamez,
             )
 
