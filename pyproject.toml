@@ -9,7 +9,6 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "=3.11.*"
 bpy = "^4.1.0"
-requests = "^2.32.3"
 mathutils = "^3.3.0"
 pyserial = "^3.5"
 

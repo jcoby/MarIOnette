@@ -13,7 +13,7 @@ bl_info = {
     "category": "Animation",
 }
 
-import bpy, sys, glob, os, time, math, linecache, requests, platform
+import bpy, sys, glob, os, time, math, linecache, platform, shutil
 
 try:
     import serial
@@ -1788,18 +1788,15 @@ class Sync(bpy.types.Operator):
         if scn.scn_prop.OverwriteArduinoFile or (
             not scn.scn_prop.OverwriteArduinoFile and not os.path.exists(filenamez)
         ):
-            # Download from Github
-            url = "https://raw.githubusercontent.com/knee-koh/MarIOnette/main/Arduino%20Code/MarIOnette_Template_V1/MarIOnette_Template_V1.ino"
-            res = requests.get(url)
-
             # Create new folder in selected destination
             if not os.path.exists(new_directory):
                 os.mkdir(new_directory)
 
-            # Copy downloaded code into new code
-            file = open(filenamez, "w")
-            file.write(res.text)
-            file.close()
+            # Copy ino file to filenamez
+            shutil.copy(
+                "./Arduino Code/MarIOnette_Template_V1/MarIOnette_Template_V1.ino",
+                filenamez,
+            )
 
         if scn.scn_prop.ConfigType == ".h File":
             # Count each actuator type
