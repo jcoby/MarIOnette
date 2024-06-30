@@ -61,7 +61,7 @@ unsigned int busServoSpeed;
 unsigned int readingPositions = 0;
 
 // Dynamixel
-#if TOTAL_DYNAMIXELS > 0:
+#if TOTAL_DYNAMIXELS > 0
 #include "Dynamixel2Arduino.h"
 Dynamixel2Arduino dxl(DYNAMIXEL_SERIAL_PORT, DYNAMIXEL_DIR_PIN);
 // This namespace is required to use Control table item names
@@ -174,9 +174,10 @@ void setupAll() {
 #endif
 
     // Neopixels and others
-#if (TOTAL_NEOPIXEL + TOTAL_DOTSTARS) > 0:
+#if (TOTAL_NEOPIXEL + TOTAL_DOTSTARS) > 0
 #error "Neopixel and Dotstar init support not migrated from the python code!"
     // TODO FIXME
+    // FastLED.addLeds<NEOPIXEL, 0>(neopixels[0], 12);
     // numz = 0
     // for blah in range(0, len(scn.my_list2)):
     //     if scn.my_list2[blah].LEDType == "Neopixel":
