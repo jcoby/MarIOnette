@@ -1842,7 +1842,7 @@ class Sync(bpy.types.Operator):
 #define BUS_SERVO_SERIAL_PORT {scn.scn_prop.BusServoSerialPort}
 
 #define MAX_NEOPIXELS {max_neopixels}
-
+// Motor Type, plus 9 motor-specific values
 unsigned long motor_values[TOTAL_MOTORS][10] = {{
 """.encode()
             )
